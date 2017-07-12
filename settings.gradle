@@ -1,0 +1,5 @@
+rootProject.name = 'raft-java'
+include 'raft-server'
+include 'raft-client'
+include 'raft-common'
+
