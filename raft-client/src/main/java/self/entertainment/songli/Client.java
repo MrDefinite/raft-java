@@ -1,4 +1,4 @@
-package self.entertainment.songli.message;
+package self.entertainment.songli;
 
 public class Client {
    private static Client ourInstance = new Client();

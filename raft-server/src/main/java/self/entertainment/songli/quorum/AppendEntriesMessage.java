@@ -1,6 +1,4 @@
-package self.entertainment.songli.messages;
-
-import self.entertainment.songli.Entry;
+package self.entertainment.songli.quorum;
 
 import java.io.Serializable;
 

@@ -1,4 +1,4 @@
-package self.entertainment.songli;
+package self.entertainment.songli.quorum;
 
 import java.io.Serializable;
 
