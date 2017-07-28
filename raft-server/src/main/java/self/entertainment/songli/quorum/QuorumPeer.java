@@ -3,9 +3,9 @@ package self.entertainment.songli.quorum;
 import org.apache.log4j.Logger;
 import self.entertainment.songli.RaftThread;
 import self.entertainment.songli.util.CommonUtil;
-import self.entertainment.songli.util.Timer;
 
-import java.net.InetSocketAddress;
+import java.util.Set;
+import java.util.concurrent.*;
 
 public class QuorumPeer extends RaftThread {
 
@@ -13,6 +13,13 @@ public class QuorumPeer extends RaftThread {
    private final String serverName;
    private final String serverAddress;
    private final String serverFullName;
+   private final int messagePort;
+   private final int electionPort;
+   private Set<QuorumPeer> quorumPeers;
+   private ScheduledExecutorService electionExecutor;
+   private ScheduledFuture electionFuture = null;
+   private Election election;
+   public boolean online = false;
 
    public enum ServerState {
       FOLLOWER, CANDIDATE, LEADER
@@ -24,15 +31,40 @@ public class QuorumPeer extends RaftThread {
    private long currentElectionTimeout;
    private long heartbeatInterval = CommonUtil.getHeartBeatInterval();
 
-   private Thread timerThread = null;
 
-   public QuorumPeer(String serverName, String serverAddress,
-                     String serverFullName) {
+   public QuorumPeer(int messagePort, int electionPort,
+                     String serverName, String serverAddress,
+                     String serverFullName, Set<QuorumPeer> quorumPeers) {
       super("QuorumPeer");
 
+      this.messagePort = messagePort;
+      this.electionPort = electionPort;
       this.serverName = serverName;
       this.serverAddress = serverAddress;
       this.serverFullName = serverFullName;
+      this.quorumPeers = quorumPeers;
+      this.online = true;
+
+      initElectionCom(quorumPeers, electionPort);
+   }
+
+   public QuorumPeer(int messagePort, int electionPort,
+                     String serverName, String serverAddress,
+                     String serverFullName) {
+      this(messagePort, electionPort, serverName, serverAddress,
+            serverFullName, null);
+   }
+
+   private void initElectionCom(Set<QuorumPeer> quorumPeers, int electionPort) {
+      electionExecutor = Executors.newSingleThreadScheduledExecutor();
+      election = Election.getInstance();
+      election.setQuorumPeers(quorumPeers);
+      election.setElectionPort(electionPort);
+   }
+
+   public void setQuorumPeers(Set<QuorumPeer> quorumPeers) {
+      election.setQuorumPeers(quorumPeers);
+      this.quorumPeers = quorumPeers;
    }
 
    volatile boolean running = true;
@@ -45,27 +77,28 @@ public class QuorumPeer extends RaftThread {
    }
 
    private void startTimer() {
-      if (timerThread != null) {
-         stopTimer();
-      }
+      LOGGER.debug("Start timer for election");
+      electionFuture = electionExecutor.schedule(() -> {
+         LOGGER.debug("Election timeout reached! Begin election!");
 
-      timerThread = new Thread(new Timer(CommonUtil.getElectionTimeout()));
-      timerThread.start();
+         election.beginElection();
+      }, CommonUtil.getElectionTimeout(), TimeUnit.MILLISECONDS);
+
    }
 
    private void stopTimer() {
-      if (timerThread == null) {
-         LOGGER.warn("There is no timer to stop");
-         return;
+      if (electionFuture == null) {
+         throw new NullPointerException("electionFuture is null!");
       }
 
-      timerThread.interrupt();
-      timerThread = null;
+      LOGGER.debug("Stopping election timer!");
+      electionFuture.cancel(false);
+      electionFuture = null;
    }
 
    private void runAsFollower() {
       while (true) {
-         if (timerThread == null) {
+         if (electionFuture == null) {
             startTimer();
          }
       }
@@ -94,6 +127,18 @@ public class QuorumPeer extends RaftThread {
 
    }
 
+   public String getServerName() {
+      return serverName;
+   }
+
+   public String getServerAddress() {
+      return serverAddress;
+   }
+
+   public String getServerFullName() {
+      return serverFullName;
+   }
+
    @Override
    public boolean equals(Object o) {
       if (this == o) return true;
@@ -101,18 +146,24 @@ public class QuorumPeer extends RaftThread {
 
       QuorumPeer that = (QuorumPeer) o;
 
-      if (heartbeatInterval != that.heartbeatInterval) return false;
-      if (running != that.running) return false;
-      return state == that.state;
+      if (serverName != null ? !serverName.equals(that.serverName) :
+            that.serverName != null) return false;
+      if (serverAddress != null ? !serverAddress.equals(that.serverAddress) :
+            that.serverAddress != null) return false;
+      return serverFullName != null ?
+            serverFullName.equals(that.serverFullName) :
+            that.serverFullName == null;
    }
 
    @Override
    public int hashCode() {
-      int result = state != null ? state.hashCode() : 0;
+      int result = serverName != null ? serverName.hashCode() : 0;
       result =
             31 * result +
-                  (int) (heartbeatInterval ^ (heartbeatInterval >>> 32));
-      result = 31 * result + (running ? 1 : 0);
+                  (serverAddress != null ? serverAddress.hashCode() : 0);
+      result =
+            31 * result +
+                  (serverFullName != null ? serverFullName.hashCode() : 0);
       return result;
    }
 }
